@@ -335,7 +335,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 left: x,
                 width,
                 height,
-                zIndex: isSelected ? 30 : 10
+                zIndex: isSelected ? 30 : (isHovered ? 25 : 10)
               }}
               className={`bg-white border rounded shadow-sm hover:shadow-md transition-shadow flex flex-col group/comp overflow-visible ${
                 isSelected ? 'border-blue-500 ring-1 ring-blue-500/20' : 'border-slate-200'

@@ -20,6 +20,7 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
   const [webglFallbackTip, setWebglFallbackTip] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [disableSamplingForCurrentChart, setDisableSamplingForCurrentChart] = useState(false);
+  const [hasNoData, setHasNoData] = useState(false);
 
   // 1. 字段及数据源正确性校验
   useEffect(() => {
@@ -107,6 +108,9 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
       return { x, y: finalVal };
     });
 
+    // 智能过滤：只保留数值不为 0 且有效的分类，剔除无数据的类别占位
+    aggregatedList = aggregatedList.filter(item => item.y !== 0 && item.y !== null && item.y !== undefined && !isNaN(item.y));
+
     // 2.2 大数据降采样控制
     const originalLength = aggregatedList.length;
     let isSampled = false;
@@ -130,6 +134,39 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
     const xAxisData = aggregatedList.map(item => item.x);
     const yAxisData = aggregatedList.map(item => item.y);
 
+    // 2.2.5 智能 dataZoom 滚动条控制（当数据点超过 30 个时启用，只默认展示前 30 个）
+    const totalPoints = xAxisData.length;
+    const enableDataZoom = totalPoints > 30;
+    const dataZoomPercent = enableDataZoom ? Math.min(100, Math.ceil(30 / totalPoints * 100)) : 100;
+    const dataZoomOption = enableDataZoom ? [
+      {
+        type: 'slider' as const,
+        show: true,
+        xAxisIndex: [0],
+        start: 0,
+        end: dataZoomPercent,
+        height: 18,
+        bottom: 30,
+        textStyle: { fontSize: 10 }
+      },
+      {
+        type: 'inside' as const,
+        xAxisIndex: [0],
+        start: 0,
+        end: dataZoomPercent
+      }
+    ] : undefined;
+
+    // 计算自适应 X 轴标签旋转角度
+    const xLabelRotate = originalLength > 30 ? 45 : (originalLength > 10 ? 30 : 0);
+
+    // 数据项过多（大于 30）时，强制隐藏柱顶数值标签以规避数值重叠，靠 hover tooltip 查看
+    const autoShowLabel = config.showDataLabel && originalLength <= 30;
+
+    // 柱体自适应宽度及组间间距（分类多则收窄，分类少则加宽）
+    const dynamicBarWidth = originalLength > 50 ? '30%' : (originalLength > 20 ? '45%' : '60%');
+    const dynamicBarCategoryGap = originalLength > 50 ? '35%' : '20%';
+
     // 2.3 构建 ECharts Option
     let option: echarts.EChartsOption = {};
 
@@ -139,12 +176,31 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
 
     if (config.chartType === 'pie' || config.chartType === 'ring' || config.chartType === 'rose') {
       // 饼图/环形图/玫瑰图配置
-      const pieData = xAxisData.map((x, index) => ({
+      let pieData = xAxisData.map((x, index) => ({
         name: x,
         value: yAxisData[index]
       }));
 
-      const legendPosition = config.legendPosition || 'top';
+      // 对小占比的饼图扇区合并为“其他”
+      const totalSum = yAxisData.reduce((a, b) => a + b, 0);
+      if (pieData.length > 8 && totalSum > 0) {
+        const threshold = totalSum * 0.02; // 占比小于 2% 合并
+        let otherSum = 0;
+        const mainData = [];
+        for (const item of pieData) {
+          if (item.value < threshold) {
+            otherSum += item.value;
+          } else {
+            mainData.push(item);
+          }
+        }
+        if (otherSum > 0) {
+          mainData.push({ name: '其他', value: otherSum });
+          pieData = mainData;
+        }
+      }
+
+      const legendPosition = config.legendPosition || 'bottom';
       const legendOption = legendPosition === 'center'
         ? { orient: 'horizontal' as const, left: 'center' as const, top: 'middle' as const, type: 'scroll' as const }
         : legendPosition === 'left' || legendPosition === 'right'
@@ -155,6 +211,7 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
         title: { text: baseTitle, left: 'center', textStyle: { fontSize: 14, fontWeight: 'normal' } },
         tooltip: {
           trigger: 'item',
+          confine: true,
           formatter: (params: any) => {
             return `${params.seriesName} <br/>${params.name} : ${params.value.toFixed(precision)} (${params.percent}%)`;
           }
@@ -183,6 +240,9 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
             },
             labelLine: {
               show: config.showPieLabelLine !== false
+            },
+            labelLayout: {
+              hideOverlap: true
             }
           }
         ]
@@ -196,11 +256,16 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
           type: 'bar',
           data: yAxisData,
           large: useWebGL,
-          label: config.showDataLabel ? {
+          barWidth: dynamicBarWidth,
+          label: autoShowLabel ? {
             show: true,
-            position: 'top',
-            formatter: (params: any) => params.value.toFixed(precision)
-          } : undefined
+            position: config.chartType === 'stack' ? 'inside' : 'top',
+            formatter: (params: any) => {
+              const val = Number(params.value);
+              return val === 0 ? '' : val.toFixed(precision);
+            }
+          } : undefined,
+          labelLayout: { hideOverlap: true }
         }
       ];
 
@@ -247,20 +312,52 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
           }
         };
 
-        barSeries = seriesNames.map(seriesName => ({
+        // 智能过滤：过滤并移去无有效数据的系列
+        const activeSeriesNames = seriesNames.filter(seriesName => {
+          let hasData = false;
+          for (const x of groupedXAxisData) {
+            const val = getFinalValue(groupedStats.get(x)?.get(seriesName));
+            if (val !== 0 && val !== null && val !== undefined && !isNaN(val)) {
+              hasData = true;
+              break;
+            }
+          }
+          return hasData;
+        });
+
+        // 智能过滤：过滤并移去该分类下全系列均无数据的 X 轴目
+        const activeXAxisData = groupedXAxisData.filter(x => {
+          let hasData = false;
+          for (const seriesName of activeSeriesNames) {
+            const val = getFinalValue(groupedStats.get(x)?.get(seriesName));
+            if (val !== 0 && val !== null && val !== undefined && !isNaN(val)) {
+              hasData = true;
+              break;
+            }
+          }
+          return hasData;
+        });
+
+        barSeries = activeSeriesNames.map(seriesName => ({
           name: seriesName,
           type: 'bar',
           stack: config.chartType === 'stack' ? 'total' : undefined,
-          data: groupedXAxisData.map(x => getFinalValue(groupedStats.get(x)?.get(seriesName))),
+          data: activeXAxisData.map(x => getFinalValue(groupedStats.get(x)?.get(seriesName))),
           large: useWebGL,
-          label: config.showDataLabel ? {
+          barWidth: dynamicBarWidth,
+          barGap: '10%',
+          label: autoShowLabel ? {
             show: true,
-            position: 'top',
-            formatter: (params: any) => params.value.toFixed(precision)
-          } : undefined
+            position: config.chartType === 'stack' ? 'inside' : 'top',
+            formatter: (params: any) => {
+              const val = Number(params.value);
+              return val === 0 ? '' : val.toFixed(precision);
+            }
+          } : undefined,
+          labelLayout: { hideOverlap: true }
         }));
 
-        xAxisData.splice(0, xAxisData.length, ...groupedXAxisData);
+        xAxisData.splice(0, xAxisData.length, ...activeXAxisData);
       }
 
       option = {
@@ -268,6 +365,7 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
         tooltip: {
           trigger: 'axis',
           axisPointer: { type: 'shadow' },
+          confine: true,
           formatter: (params: any) => {
             let res = `${params[0].name}`;
             params.forEach((item: any) => {
@@ -276,18 +374,38 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
             return res;
           }
         },
-        legend: config.showLegend ? { top: 'top' } : undefined,
-        grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
+        legend: config.showLegend ? { bottom: 0, left: 'center', type: 'scroll' as const, orient: 'horizontal' as const } : undefined,
+        grid: { left: '3%', right: '4%', bottom: enableDataZoom ? 75 : 40, containLabel: true },
         color: colors,
+        dataZoom: dataZoomOption,
         xAxis: {
           type: 'category',
           data: xAxisData,
           axisLabel: {
-            rotate: 45, // 旋转标签，避免重叠
-            interval: originalLength > 50 ? 'auto' : 0
+            rotate: xLabelRotate,
+            interval: originalLength > 50 ? 'auto' : 0,
+            formatter: (val: string) => {
+              if (typeof val === 'string' && val.length > 8) {
+                return val.substring(0, 8) + '...';
+              }
+              return val;
+            }
           }
         },
-        yAxis: { type: 'value' },
+        yAxis: { 
+          type: 'value',
+          axisLabel: {
+            formatter: (val: number) => {
+              if (val >= 100000000) {
+                return (val / 100000000).toFixed(1) + '亿';
+              }
+              if (val >= 10000) {
+                return (val / 10000).toFixed(1) + '万';
+              }
+              return new Intl.NumberFormat('zh-CN').format(val);
+            }
+          }
+        },
         series: barSeries
       };
     } else {
@@ -300,11 +418,12 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
           smooth: config.smoothLine || false,
           large: useWebGL,
           areaStyle: config.areaFill ? { opacity: 0.3 } : undefined,
-          label: config.showDataLabel ? {
+          label: autoShowLabel ? {
             show: true,
             position: 'top',
             formatter: (params: any) => params.value.toFixed(precision)
-          } : undefined
+          } : undefined,
+          labelLayout: { hideOverlap: true }
         }
       ];
 
@@ -345,11 +464,12 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
             data: xAxisData.map(x => getFinalValue(secondaryStats.get(x))),
             smooth: config.smoothLine || false,
             large: useWebGL,
-            label: config.showDataLabel ? {
+            label: autoShowLabel ? {
               show: true,
               position: 'top',
               formatter: (params: any) => params.value.toFixed(precision)
-            } : undefined
+            } : undefined,
+            labelLayout: { hideOverlap: true }
           }
         ];
       }
@@ -358,6 +478,7 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
         title: { text: baseTitle, textStyle: { fontSize: 14, fontWeight: 'normal' } },
         tooltip: {
           trigger: 'axis',
+          confine: true,
           formatter: (params: any) => {
             let res = `${params[0].name}`;
             params.forEach((item: any) => {
@@ -366,25 +487,75 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
             return res;
           }
         },
-        legend: config.showLegend ? { top: 'top' } : undefined,
-        grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
+        legend: config.showLegend ? { bottom: 0, left: 'center', type: 'scroll' as const, orient: 'horizontal' as const } : undefined,
+        grid: { left: '3%', right: '4%', bottom: enableDataZoom ? 75 : 40, containLabel: true },
         color: colors,
+        dataZoom: dataZoomOption,
         xAxis: {
           type: 'category',
           data: xAxisData,
           axisLabel: {
-            rotate: 45,
-            interval: originalLength > 50 ? 'auto' : 0
+            rotate: xLabelRotate,
+            interval: originalLength > 50 ? 'auto' : 0,
+            formatter: (val: string) => {
+              if (typeof val === 'string' && val.length > 8) {
+                return val.substring(0, 8) + '...';
+              }
+              return val;
+            }
           }
         },
         yAxis: config.dualYAxis && config.secondaryYField
           ? [
-              { type: 'value', name: config.yField },
-              { type: 'value', name: config.secondaryYField }
+              { 
+                type: 'value', 
+                name: config.yField,
+                axisLabel: {
+                  formatter: (val: number) => {
+                    if (val >= 100000000) return (val / 100000000).toFixed(1) + '亿';
+                    if (val >= 10000) return (val / 10000).toFixed(1) + '万';
+                    return new Intl.NumberFormat('zh-CN').format(val);
+                  }
+                }
+              },
+              { 
+                type: 'value', 
+                name: config.secondaryYField,
+                axisLabel: {
+                  formatter: (val: number) => {
+                    if (val >= 100000000) return (val / 100000000).toFixed(1) + '亿';
+                    if (val >= 10000) return (val / 10000).toFixed(1) + '万';
+                    return new Intl.NumberFormat('zh-CN').format(val);
+                  }
+                }
+              }
             ]
-          : { type: 'value' },
+          : { 
+              type: 'value',
+              axisLabel: {
+                formatter: (val: number) => {
+                  if (val >= 100000000) return (val / 100000000).toFixed(1) + '亿';
+                  if (val >= 10000) return (val / 10000).toFixed(1) + '万';
+                  return new Intl.NumberFormat('zh-CN').format(val);
+                }
+              }
+            },
         series: lineSeries
       };
+    }
+
+    // 智能兜底：全部数据均为 0/空时展示「暂无有效数据」而不渲染任何图表轴线
+    const isDataEmpty = xAxisData.length === 0;
+
+    if (isDataEmpty) {
+      setHasNoData(true);
+      if (chartInstanceRef.current) {
+        chartInstanceRef.current.dispose();
+        chartInstanceRef.current = null;
+      }
+      return;
+    } else {
+      setHasNoData(false);
     }
 
     chartInstanceRef.current.setOption(option);
@@ -467,6 +638,15 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
             <AlertCircle size={28} className="text-red-400 mb-2" />
             <span className="text-sm font-medium text-red-700">配置字段缺失</span>
             <span className="text-xs text-red-500 mt-1">数据集可能发生变更，请点击“设置”重新绑定</span>
+          </div>
+        )}
+
+        {/* 全部数据均为0/空：暂无有效数据遮罩 */}
+        {hasNoData && errorState === 'none' && (
+          <div className="absolute inset-0 bg-slate-50/90 backdrop-blur-[1px] flex flex-col items-center justify-center text-center p-4">
+            <AlertCircle size={28} className="text-slate-400 mb-2" />
+            <span className="text-sm font-medium text-slate-600">暂无有效数据</span>
+            <span className="text-xs text-slate-400 mt-1">图表数据已被过滤或数值全部为零/空</span>
           </div>
         )}
       </div>
