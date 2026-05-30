@@ -49,6 +49,8 @@ export interface ChartConfig {
   colors?: string[]; // 自定义颜色数组
   enableDownSampling?: boolean; // 是否启用大数据降采样
   precision?: number; // 数值保留小数位
+  showTotalLabel?: boolean; // 显示柱体总数标签
+  maxCategories?: number; // 限制最多展示多少个分类数据
 }
 
 export interface BoardComponent {

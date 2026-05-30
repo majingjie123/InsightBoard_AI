@@ -111,6 +111,11 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
     // 智能过滤：只保留数值不为 0 且有效的分类，剔除无数据的类别占位
     aggregatedList = aggregatedList.filter(item => item.y !== 0 && item.y !== null && item.y !== undefined && !isNaN(item.y));
 
+    // 限制分类最多显示个数 (Top N)
+    if (config.maxCategories && config.maxCategories > 0) {
+      aggregatedList = aggregatedList.slice(0, config.maxCategories);
+    }
+
     // 2.2 大数据降采样控制
     const originalLength = aggregatedList.length;
     let isSampled = false;
@@ -250,6 +255,7 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
     } else if (config.chartType === 'bar' || config.chartType === 'group' || config.chartType === 'stack') {
       // 柱状图配置
       const shouldUseSeries = Boolean(config.seriesField && (config.chartType === 'group' || config.chartType === 'stack'));
+      let activeSeriesNames: string[] = [];
       let barSeries: any[] = [
         {
           name: config.yField,
@@ -313,7 +319,7 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
         };
 
         // 智能过滤：过滤并移去无有效数据的系列
-        const activeSeriesNames = seriesNames.filter(seriesName => {
+        activeSeriesNames = seriesNames.filter(seriesName => {
           let hasData = false;
           for (const x of groupedXAxisData) {
             const val = getFinalValue(groupedStats.get(x)?.get(seriesName));
@@ -326,7 +332,7 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
         });
 
         // 智能过滤：过滤并移去该分类下全系列均无数据的 X 轴目
-        const activeXAxisData = groupedXAxisData.filter(x => {
+        let activeXAxisData = groupedXAxisData.filter(x => {
           let hasData = false;
           for (const seriesName of activeSeriesNames) {
             const val = getFinalValue(groupedStats.get(x)?.get(seriesName));
@@ -337,6 +343,11 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
           }
           return hasData;
         });
+
+        // 限制分类最多显示个数 (Top N)
+        if (config.maxCategories && config.maxCategories > 0) {
+          activeXAxisData = activeXAxisData.slice(0, config.maxCategories);
+        }
 
         barSeries = activeSeriesNames.map(seriesName => ({
           name: seriesName,
@@ -357,6 +368,35 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
           labelLayout: { hideOverlap: true }
         }));
 
+        // 开启了“显示柱体总数”且是堆叠图，增加用于在顶部渲染总数的透明辅助系列
+        if (config.chartType === 'stack' && config.showTotalLabel) {
+          const totalData = activeXAxisData.map(x => {
+            let sum = 0;
+            for (const seriesName of activeSeriesNames) {
+              sum += getFinalValue(groupedStats.get(x)?.get(seriesName));
+            }
+            return sum;
+          });
+
+          barSeries.push({
+            name: '总计',
+            type: 'bar',
+            stack: 'total',
+            data: totalData,
+            itemStyle: { color: 'rgba(0,0,0,0)' },
+            label: {
+              show: true,
+              position: 'top',
+              formatter: (params: any) => {
+                const val = Number(params.value);
+                return val === 0 ? '' : val.toFixed(precision);
+              },
+              textStyle: { color: '#475569', fontWeight: 'bold', fontSize: 11 }
+            },
+            tooltip: { show: false }
+          });
+        }
+
         xAxisData.splice(0, xAxisData.length, ...activeXAxisData);
       }
 
@@ -374,7 +414,7 @@ export const EChartComponent: React.FC<EChartComponentProps> = ({ config, datase
             return res;
           }
         },
-        legend: config.showLegend ? { bottom: 0, left: 'center', type: 'scroll' as const, orient: 'horizontal' as const } : undefined,
+        legend: config.showLegend ? { data: shouldUseSeries ? activeSeriesNames : undefined, bottom: 0, left: 'center', type: 'scroll' as const, orient: 'horizontal' as const } : undefined,
         grid: { left: '3%', right: '4%', bottom: enableDataZoom ? 75 : 40, containLabel: true },
         color: colors,
         dataZoom: dataZoomOption,

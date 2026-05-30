@@ -601,6 +601,11 @@ export class PreviewServer {
             // 智能过滤：只保留数值不为 0 且有效的分类，剔除无数据的类别占位
             aggregatedList = aggregatedList.filter(item => item.y !== 0 && item.y !== null && item.y !== undefined && !isNaN(item.y));
 
+            // 限制分类最多显示个数 (Top N)
+            if (config.maxCategories && config.maxCategories > 0) {
+              aggregatedList = aggregatedList.slice(0, config.maxCategories);
+            }
+
             const xAxisData = aggregatedList.map(item => item.x);
             const yAxisData = aggregatedList.map(item => item.y);
 
@@ -721,6 +726,7 @@ export class PreviewServer {
             } else if (chartType === 'bar' || chartType === 'group' || chartType === 'stack') {
               const shouldUseSeries = Boolean(config.seriesField && (chartType === 'group' || chartType === 'stack'));
               let barSeries = [];
+              let activeSeriesNames = [];
 
               if (shouldUseSeries) {
                 const xSet = new Set();
@@ -764,7 +770,7 @@ export class PreviewServer {
                 };
 
                 // 智能过滤：过滤并移去无有效数据的系列
-                const activeSeriesNames = seriesNames.filter(seriesName => {
+                activeSeriesNames = seriesNames.filter(seriesName => {
                   let hasData = false;
                   for (const x of groupedXAxisData) {
                     const val = getFinalValue(groupedStats.get(x)?.get(seriesName));
@@ -777,7 +783,7 @@ export class PreviewServer {
                 });
 
                 // 智能过滤：过滤并移去该分类下全系列均无数据的 X 轴目
-                const activeXAxisData = groupedXAxisData.filter(x => {
+                let activeXAxisData = groupedXAxisData.filter(x => {
                   let hasData = false;
                   for (const seriesName of activeSeriesNames) {
                     const val = getFinalValue(groupedStats.get(x)?.get(seriesName));
@@ -788,6 +794,11 @@ export class PreviewServer {
                   }
                   return hasData;
                 });
+
+                // 限制分类最多显示个数 (Top N)
+                if (config.maxCategories && config.maxCategories > 0) {
+                  activeXAxisData = activeXAxisData.slice(0, config.maxCategories);
+                }
 
                 barSeries = activeSeriesNames.map(seriesName => ({
                   name: seriesName,
@@ -808,6 +819,35 @@ export class PreviewServer {
                     hideOverlap: true
                   }
                 }));
+
+                // 开启了“显示柱体总数”且是堆叠图，增加用于在顶部渲染总数的透明辅助系列
+                if (chartType === 'stack' && config.showTotalLabel) {
+                  const totalData = activeXAxisData.map(function(x) {
+                    let sum = 0;
+                    for (const seriesName of activeSeriesNames) {
+                      sum += getFinalValue(groupedStats.get(x)?.get(seriesName));
+                    }
+                    return sum;
+                  });
+
+                  barSeries.push({
+                    name: '总计',
+                    type: 'bar',
+                    stack: 'total',
+                    data: totalData,
+                    itemStyle: { color: 'rgba(0,0,0,0)' },
+                    label: {
+                      show: true,
+                      position: 'top',
+                      formatter: function(params) {
+                        var val = Number(params.value);
+                        return val === 0 ? '' : val.toFixed(precision);
+                      },
+                      textStyle: { color: '#475569', fontWeight: 'bold', fontSize: 11 }
+                    },
+                    tooltip: { show: false }
+                  });
+                }
 
                 xAxisData.splice(0, xAxisData.length, ...activeXAxisData);
               } else {
@@ -844,7 +884,7 @@ export class PreviewServer {
                     return res;
                   }
                 },
-                legend: config.showLegend ? { bottom: 0, left: 'center', type: 'scroll', orient: 'horizontal' } : undefined,
+                legend: config.showLegend ? { data: shouldUseSeries ? activeSeriesNames : undefined, bottom: 0, left: 'center', type: 'scroll', orient: 'horizontal' } : undefined,
                 grid: { left: '3%', right: '4%', bottom: enableDataZoom ? 75 : 40, containLabel: true },
                 color: colors,
                 dataZoom: dataZoomOption,

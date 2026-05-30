@@ -49,7 +49,9 @@ function getDefaultChartConfig(type: ComponentType): ChartConfig {
     aggregation: 'sum',
     showLegend: true,
     showDataLabel: false,
-    enableDownSampling: true
+    enableDownSampling: true,
+    showTotalLabel: false,
+    maxCategories: undefined
   };
 
   switch (type) {

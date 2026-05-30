@@ -49,6 +49,8 @@ export const ComponentSettingsModal: React.FC<ComponentSettingsModalProps> = ({
   const [colors, setColors] = useState<string[]>([]);
   const [enableDownSampling, setEnableDownSampling] = useState(true);
   const [precision, setPrecision] = useState(2);
+  const [showTotalLabel, setShowTotalLabel] = useState(false);
+  const [maxCategories, setMaxCategories] = useState<number | undefined>(undefined);
 
   const selectedDataset = datasets.find(d => d.id === dataSourceId) || null;
 
@@ -85,6 +87,8 @@ export const ComponentSettingsModal: React.FC<ComponentSettingsModalProps> = ({
       setColors(cCfg.colors || ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']);
       setEnableDownSampling(cCfg.enableDownSampling !== false);
       setPrecision(cCfg.precision ?? 2);
+      setShowTotalLabel(cCfg.showTotalLabel || false);
+      setMaxCategories(cCfg.maxCategories);
     }
   }, [component, datasets, isTable]);
 
@@ -124,7 +128,9 @@ export const ComponentSettingsModal: React.FC<ComponentSettingsModalProps> = ({
         title,
         colors,
         enableDownSampling,
-        precision
+        precision,
+        showTotalLabel,
+        maxCategories
       };
       onSave(savedConfig);
     }
@@ -573,6 +579,43 @@ export const ComponentSettingsModal: React.FC<ComponentSettingsModalProps> = ({
                     className="rounded text-blue-600 h-3.5 w-3.5"
                   />
                   <label htmlFor="sampling-check" className="text-slate-500 cursor-pointer">大数据降采样</label>
+                </div>
+              </div>
+
+              {/* 高级图表配置：显示总数、限制展示数量 */}
+              <div className="grid grid-cols-2 gap-3 bg-slate-50 p-2.5 rounded border border-slate-100 mt-2">
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    id="total-label-check"
+                    checked={showTotalLabel}
+                    onChange={(e) => setShowTotalLabel(e.target.checked)}
+                    className="rounded text-blue-600 h-3.5 w-3.5"
+                    disabled={chartType !== 'bar' && chartType !== 'group' && chartType !== 'stack'}
+                  />
+                  <label htmlFor="total-label-check" className="text-slate-500 cursor-pointer disabled:opacity-50">
+                    显示柱体总数 (堆叠/柱图)
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label htmlFor="max-categories-input" className="text-xs text-slate-500 whitespace-nowrap">最多显示分类数:</label>
+                  <input
+                    type="number"
+                    id="max-categories-input"
+                    value={maxCategories ?? ''}
+                    placeholder="全部"
+                    onChange={(e) => {
+                      const valStr = e.target.value;
+                      if (valStr === '') {
+                        setMaxCategories(undefined);
+                      } else {
+                        const num = Number(valStr);
+                        if (num > 0) setMaxCategories(num);
+                      }
+                    }}
+                    className="flex-1 px-2 py-1 text-xs border rounded border-slate-200 outline-none focus:border-blue-500"
+                    min={1}
+                  />
                 </div>
               </div>
             </div>

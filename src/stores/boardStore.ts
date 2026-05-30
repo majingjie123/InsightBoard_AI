@@ -116,7 +116,9 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       areaFill: false,
       title: defaultNames[type],
       colors: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#64748b'],
-      enableDownSampling: true
+      enableDownSampling: true,
+      showTotalLabel: false,
+      maxCategories: undefined
     };
 
     const newComponent: BoardComponent = {
