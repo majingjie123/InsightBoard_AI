@@ -70,6 +70,8 @@ body {
 .w-60 { width: 15rem; }
 .w-64 { width: 16rem; }
 .w-80 { width: 20rem; }
+.w-96 { width: 24rem; }
+.w-112 { width: 28rem; }
 .min-h-0 { min-height: 0; }
 .min-w-0 { min-width: 0; }
 .max-w-xs { max-w: 20rem; }
@@ -77,6 +79,12 @@ body {
 .max-w-md { max-w: 28rem; }
 .max-w-lg { max-w: 32rem; }
 .max-w-4xl { max-w: 56rem; }
+
+.max-h-16 { max-height: 4rem; }
+.max-h-32 { max-height: 8rem; }
+.max-h-36 { max-height: 9rem; }
+.max-h-48 { max-height: 12rem; }
+.max-h-\[90vh\] { max-height: 90vh; }
 
 /* 内外边距 */
 .p-1 { padding: 0.25rem; }
@@ -201,6 +209,27 @@ body {
 .overflow-hidden { overflow: hidden; }
 .overflow-auto { overflow: auto; }
 .overflow-visible { overflow: visible; }
+.overflow-y-auto { overflow-y: auto; }
+.overflow-x-hidden { overflow-x: hidden; }
+
+/* 优雅的自定义滚动条样式 */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.3); /* 极暗半透明底色 */
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3); /* 灰色半透明滑块 */
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.6); /* 悬浮时呈亮蓝色，方便识别 */
+}
+
 .cursor-pointer { cursor: pointer; }
 .cursor-move { cursor: move; }
 .cursor-col-resize { cursor: col-resize; }
@@ -213,6 +242,7 @@ body {
 .cursor-sw-resize { cursor: sw-resize; }
 .cursor-se-resize { cursor: se-resize; }
 .select-none { user-select: none; }
+.select-text { user-select: text; -webkit-user-select: text; }
 .pointer-events-none { pointer-events: none; }
 .pointer-events-auto { pointer-events: auto; }
 
