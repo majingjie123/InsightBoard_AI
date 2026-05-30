@@ -91,7 +91,13 @@ export const DataTable: React.FC<DataTableProps> = ({
   // 3. 数据过滤 (全局模糊搜索)
   const filteredData = useMemo(() => {
     if (!dataset) return [];
-    const rawData = dataset.data;
+    
+    // 卫语句：自动过滤掉内容与表头完全一致的冗余数据行（防止导入时重复包含标题）
+    const rawData = dataset.data.filter(row => {
+      // 只有当所有列的值都等于列名时，才判定为冗余表头行
+      return !dataset.columns.every(col => String(row[col.name]) === col.name);
+    });
+
     if (!searchText.trim()) return rawData;
 
     const query = searchText.toLowerCase().trim();
