@@ -43,6 +43,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
   // 本地拖动/缩放的临时状态，避免实时更新 Zustand 触发过多重绘
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [activeResizeId, setActiveResizeId] = useState<string | null>(null);
+  const [hoveredComponentId, setHoveredComponentId] = useState<string | null>(null);
   const [tempPos, setTempPos] = useState<{ x: number; y: number } | null>(null);
   const [tempSize, setTempSize] = useState<{ width: number; height: number } | null>(null);
 
@@ -108,6 +109,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
     // 卫语句：只读或锁定组件拦截
     if (isReadOnly || comp.locked) return;
     
+    e.preventDefault();
     e.stopPropagation();
     setSelectedComponentId(comp.id);
     setActiveDragId(comp.id);
@@ -133,25 +135,21 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
       setTempPos({ x: boundedX, y: boundedY });
     };
 
-    const handleMouseUp = (upEvent: MouseEvent) => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
 
-      const deltaX = upEvent.clientX - startX;
-      const deltaY = upEvent.clientY - startY;
-      const rawX = initX + deltaX;
-      const rawY = initY + deltaY;
-      const snapped = gridSnapper.snapPosition({ x: rawX, y: rawY });
-      const boundedX = Math.max(0, snapped.x);
-      const boundedY = Math.max(0, snapped.y);
-
-      updateComponentPosition(comp.id, { x: boundedX, y: boundedY });
       setActiveDragId(null);
-      setTempPos(null);
+      setTempPos(currentPos => {
+        if (currentPos && (currentPos.x !== initX || currentPos.y !== initY)) {
+          updateComponentPosition(comp.id, currentPos);
+        }
+        return null;
+      });
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
   };
 
   // 3. 拖拽拉伸尺寸逻辑
@@ -159,7 +157,9 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
     // 卫语句：只读或锁定组件拦截
     if (isReadOnly || comp.locked) return;
 
+    e.preventDefault();
     e.stopPropagation();
+    
     // 立即选中，确保手柄保持显示
     setSelectedComponentId(comp.id);
     setActiveResizeId(comp.id);
@@ -171,69 +171,79 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
     const initWidth = comp.size.width;
     const initHeight = comp.size.height;
 
+    // 立即初始化临时状态，避免第一帧跳变
+    setTempPos({ x: initX, y: initY });
+    setTempSize({ width: initWidth, height: initHeight });
+
+    // 记录最新状态供 MouseUp 使用
+    let lastFinalPos = { x: initX, y: initY };
+    let lastFinalSize = { width: initWidth, height: initHeight };
+
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - startX;
       const deltaY = moveEvent.clientY - startY;
 
-      // 1. 根据方向计算原始（未吸附）的变更
-      let rawX = initX;
-      let rawY = initY;
-      let rawW = initWidth;
-      let rawH = initHeight;
+      let newX = initX;
+      let newY = initY;
+      let newW = initWidth;
+      let newH = initHeight;
 
-      if (direction.includes('e')) rawW = initWidth + deltaX;
-      if (direction.includes('s')) rawH = initHeight + deltaY;
+      // 1. 根据方向计算拉伸（仅对受影响的轴进行网格吸附）
+      if (direction.includes('e')) {
+        newW = Math.max(150, gridSnapper.snap(initWidth + deltaX));
+      }
       if (direction.includes('w')) {
-        rawX = initX + deltaX;
-        rawW = initWidth - deltaX;
+        const snappedW = gridSnapper.snap(initWidth - deltaX);
+        newW = Math.max(150, snappedW);
+        newX = initX + initWidth - newW;
+      }
+      if (direction.includes('s')) {
+        newH = Math.max(150, gridSnapper.snap(initHeight + deltaY));
       }
       if (direction.includes('n')) {
-        rawY = initY + deltaY;
-        rawH = initHeight - deltaY;
+        const snappedH = gridSnapper.snap(initHeight - deltaY);
+        newH = Math.max(150, snappedH);
+        newY = initY + initHeight - newH;
       }
 
-      // 2. 应用网格吸附（对最终值进行吸附）
-      const snappedPos = gridSnapper.snapPosition({ x: rawX, y: rawY });
-      const snappedSize = gridSnapper.snapSize({ width: rawW, height: rawH });
+      if (newX < 0) {
+        newW = initX + initWidth;
+        newX = 0;
+      }
+      if (newY < 0) {
+        newH = initY + initHeight;
+        newY = 0;
+      }
 
-      // 3. 限制最小尺寸并进行坐标修正（关键：保持对侧边缘不动）
-      const finalW = Math.max(150, snappedSize.width);
-      const finalH = Math.max(150, snappedSize.height);
-      
-      // 如果向西拉，右边缘固定：initX + initWidth
-      // 所以新 X = (initX + initWidth) - finalW
-      const finalX = direction.includes('w') ? (initX + initWidth - finalW) : snappedPos.x;
-      // 如果向北拉，下边缘固定：initY + initHeight
-      // 所以新 Y = (initY + initHeight) - finalH
-      const finalY = direction.includes('n') ? (initY + initHeight - finalH) : snappedPos.y;
+      lastFinalPos = { x: newX, y: newY };
+      lastFinalSize = { width: newW, height: newH };
 
-      setTempPos({ x: finalX, y: finalY });
-      setTempSize({ width: finalW, height: finalH });
+      setTempPos(lastFinalPos);
+      setTempSize(lastFinalSize);
     };
 
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+    const handleMouseUp = async () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
 
-      setTempPos(currentPos => {
-        setTempSize(currentSize => {
-          // 合并更新，避免产生两条历史记录
-          const updateData: any = {};
-          if (currentPos) updateData.position = currentPos;
-          if (currentSize) updateData.size = currentSize;
-          
-          if (Object.keys(updateData).length > 0) {
-            updateComponent(comp.id, updateData);
-          }
-          return null;
+      // 只有发生实际变化时才更新 Store
+      if (lastFinalPos.x !== initX || lastFinalPos.y !== initY || 
+          lastFinalSize.width !== initWidth || lastFinalSize.height !== initHeight) {
+        // 关键：等待 Store 更新完成，防止本地状态过早清理导致回弹
+        await updateComponent(comp.id, {
+          position: lastFinalPos,
+          size: lastFinalSize
         });
-        return null;
-      });
+      }
+
+      // 清理临时状态
       setActiveResizeId(null);
+      setTempPos(null);
+      setTempSize(null);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
   };
 
   // 点击画布空白处重置选中状态
@@ -295,6 +305,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
           const isSelected = comp.id === selectedComponentId;
           const isDragging = comp.id === activeDragId;
           const isResizing = comp.id === activeResizeId;
+          const isHovered = comp.id === hoveredComponentId;
 
           // 绝对定位坐标与高宽 (优先应用拖动/拉伸时的临时状态，保证 60fps 流程渲染)
           const x = (isDragging || isResizing) && tempPos ? tempPos.x : comp.position.x;
@@ -312,6 +323,12 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 e.stopPropagation();
                 setSelectedComponentId(comp.id);
               }}
+              onMouseEnter={() => setHoveredComponentId(comp.id)}
+              onMouseLeave={() => {
+                if (!isResizing) {
+                  setHoveredComponentId(null);
+                }
+              }}
               style={{
                 position: 'absolute',
                 top: y,
@@ -320,7 +337,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 height,
                 zIndex: isSelected ? 30 : 10
               }}
-              className={`bg-white border rounded shadow-sm hover:shadow-md transition-shadow flex flex-col group/comp ${
+              className={`bg-white border rounded shadow-sm hover:shadow-md transition-shadow flex flex-col group/comp overflow-visible ${
                 isSelected ? 'border-blue-500 ring-1 ring-blue-500/20' : 'border-slate-200'
               }`}
             >
@@ -418,21 +435,36 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
 
               {/* 缩放手柄 (8个方向) - 只要不锁定且未读，在选中或悬停时显示 */}
               {!isReadOnly && !comp.locked && (
-                <div className={`absolute inset-0 pointer-events-none transition-opacity ${isSelected || isResizing ? 'opacity-100' : 'opacity-0 group-hover/comp:opacity-100'}`}>
-                  {/* 四边热区：增加宽度以易于捕捉 */}
-                  <div onMouseDown={(e) => startResize(e, comp, 'n')} className="absolute -top-1.5 left-2 right-2 h-3 cursor-n-resize z-50 pointer-events-auto" />
-                  <div onMouseDown={(e) => startResize(e, comp, 's')} className="absolute -bottom-1.5 left-2 right-2 h-3 cursor-s-resize z-50 pointer-events-auto" />
-                  <div onMouseDown={(e) => startResize(e, comp, 'w')} className="absolute top-2 bottom-2 -left-1.5 w-3 cursor-w-resize z-50 pointer-events-auto" />
-                  <div onMouseDown={(e) => startResize(e, comp, 'e')} className="absolute top-2 bottom-2 -right-1.5 w-3 cursor-e-resize z-50 pointer-events-auto" />
-                  
-                  {/* 四角手柄：增大面积并增加视觉标记 */}
-                  <div onMouseDown={(e) => startResize(e, comp, 'nw')} className="absolute -top-2 -left-2 w-4 h-4 cursor-nw-resize z-50 pointer-events-auto bg-white border-2 border-blue-500 rounded-sm shadow-sm" />
-                  <div onMouseDown={(e) => startResize(e, comp, 'ne')} className="absolute -top-2 -right-2 w-4 h-4 cursor-ne-resize z-50 pointer-events-auto bg-white border-2 border-blue-500 rounded-sm shadow-sm" />
-                  <div onMouseDown={(e) => startResize(e, comp, 'sw')} className="absolute -bottom-2 -left-2 w-4 h-4 cursor-sw-resize z-50 pointer-events-auto bg-white border-2 border-blue-500 rounded-sm shadow-sm" />
-                  <div onMouseDown={(e) => startResize(e, comp, 'se')} className="absolute -bottom-2 -right-2 w-4 h-4 cursor-se-resize z-50 pointer-events-auto bg-white border-2 border-blue-500 rounded-sm shadow-sm flex items-center justify-center">
-                    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
-                  </div>
-                </div>
+                <>
+                  {(() => {
+                    const showHandles = isSelected || isResizing || isHovered;
+                    // 提升 z-index 到 200，确保在任何内部组件之上
+                    const handleBaseClass = `absolute z-[200] pointer-events-auto transition-opacity duration-150 ${showHandles ? 'opacity-100' : 'opacity-0 group-hover/comp:opacity-100'}`;
+                    
+                    return (
+                      <>
+                        {/* 四边热区：全长覆盖，厚度 16px (内外各 8px) */}
+                        <div onMouseDown={(e) => startResize(e, comp, 'n')} className={`${handleBaseClass} -top-2 left-0 right-0 h-4 cursor-n-resize hover:bg-blue-500/10`} />
+                        <div onMouseDown={(e) => startResize(e, comp, 's')} className={`${handleBaseClass} -bottom-2 left-0 right-0 h-4 cursor-s-resize hover:bg-blue-500/10`} />
+                        <div onMouseDown={(e) => startResize(e, comp, 'w')} className={`${handleBaseClass} top-0 bottom-0 -left-2 w-4 cursor-w-resize hover:bg-blue-500/10`} />
+                        <div onMouseDown={(e) => startResize(e, comp, 'e')} className={`${handleBaseClass} top-0 bottom-0 -right-2 w-4 cursor-e-resize hover:bg-blue-500/10`} />
+                        
+                        {/* 四角可见手柄：经典蓝色方块样式 */}
+                        <div onMouseDown={(e) => startResize(e, comp, 'nw')} className={`${handleBaseClass} -top-1.5 -left-1.5 w-3 h-3 cursor-nw-resize bg-white border-2 border-blue-600 rounded-sm shadow-sm hover:scale-110`} />
+                        <div onMouseDown={(e) => startResize(e, comp, 'ne')} className={`${handleBaseClass} -top-1.5 -right-1.5 w-3 h-3 cursor-ne-resize bg-white border-2 border-blue-600 rounded-sm shadow-sm hover:scale-110`} />
+                        <div onMouseDown={(e) => startResize(e, comp, 'sw')} className={`${handleBaseClass} -bottom-1.5 -left-1.5 w-3 h-3 cursor-sw-resize bg-white border-2 border-blue-600 rounded-sm shadow-sm hover:scale-110`} />
+                        <div onMouseDown={(e) => startResize(e, comp, 'se')} className={`${handleBaseClass} -bottom-1.5 -right-1.5 w-3 h-3 cursor-se-resize bg-white border-2 border-blue-600 rounded-sm shadow-sm hover:scale-110 flex items-center justify-center`}>
+                          <div className="w-1.5 h-1.5 bg-blue-600" />
+                        </div>
+
+                        {/* 选中状态辅助高亮边框 */}
+                        {isSelected && (
+                          <div className="absolute -inset-[1px] border-2 border-blue-500/40 pointer-events-none rounded-[3px] z-[190]" />
+                        )}
+                      </>
+                    );
+                  })()}
+                </>
               )}
             </div>
           );

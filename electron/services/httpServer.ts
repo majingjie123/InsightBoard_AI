@@ -381,15 +381,12 @@ export class PreviewServer {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            flex-wrap: wrap;
-            margin-bottom: 8px;
-            padding-bottom: 8px;
+            padding: 8px 12px;
             border-bottom: 1px solid #f1f5f9;
-            gap: 8px;
-            width: 100%;
+            background-color: white;
             flex-shrink: 0;
             z-index: 5;
-            min-height: 40px;
+            gap: 12px;
           }
 
           .table-title {
@@ -397,20 +394,16 @@ export class PreviewServer {
             font-weight: 600;
             color: #1e293b;
             margin: 0;
+            flex: 1;
+            white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-            white-space: nowrap;
-            flex: 1;
-            min-width: 80px;
           }
           
           .table-search-container {
             position: relative;
-            width: 180px;
-            max-width: 100%;
-            flex-shrink: 1;
-            display: flex;
-            align-items: center;
+            width: 220px;
+            flex-shrink: 0;
           }
 
           .table-search-container svg {
@@ -434,6 +427,7 @@ export class PreviewServer {
             outline: none;
             transition: all 0.2s;
             color: #1e293b;
+            display: block !important;
           }
 
           .table-search:focus {
@@ -841,7 +835,7 @@ export class PreviewServer {
             container.appendChild(tableWrap);
 
             const icons = {
-              search: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>',
+              search: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>',
               chevronLeft: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
               chevronRight: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
               chevronUp: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>',
