@@ -1,0 +1,89 @@
+{
+  "name": "insightboard-ai",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "electron/dist/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build && npm run build:electron",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "build:electron": "tsc electron/main.ts electron/preload.ts --outDir electron/dist --module commonjs --target es6 --ignoreConfig --skipLibCheck && node -e \"require('fs').writeFileSync('electron/dist/package.json', JSON.stringify({type:'commonjs'}))\"",
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && npm run build:electron && npx electron electron/dist/main.js\"",
+    "build:win": "npm run build && electron-builder --win --config electron-builder.json",
+    "dist": "npm run build:win"
+  },
+  "dependencies": {
+    "dexie": "^3.2.0",
+    "dexie-react-hooks": "^1.1.7",
+    "echarts": "^5.4.3",
+    "echarts-gl": "^2.1.0",
+    "lucide-react": "^0.300.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "xlsx": "^0.18.5",
+    "zustand": "^4.4.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.12.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^8.2.2",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.59.2",
+    "vite": "^8.0.12",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.insightboard.ai",
+    "productName": "本地AI看板",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "icon": "resources/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    },
+    "extraMetadata": {
+      "main": "electron/dist/main.js"
+    }
+  }
+}
