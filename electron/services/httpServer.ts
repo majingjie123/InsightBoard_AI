@@ -820,6 +820,60 @@ export class PreviewServer {
                   }
                 }));
 
+                if (config.dualYAxis && config.secondaryYField) {
+                  // 仅在启用双 Y 轴时，才把原有的柱子系列绑定到主数值轴
+                  barSeries = barSeries.map(function(s) {
+                    return Object.assign({}, s, { yAxisIndex: 0 });
+                  });
+
+                  // 计算并加入副数值轴折线系列
+                  const secondaryStats = new Map();
+                  for (const row of rawData) {
+                    const xVal = String(row[config.xField] ?? '');
+                    const yVal = Number(row[config.secondaryYField]);
+                    if (!xVal) continue;
+
+                    const val = isNaN(yVal) ? 0 : yVal;
+                    const stats = secondaryStats.get(xVal) || { sum: 0, count: 0, max: -Infinity, min: Infinity };
+                    stats.sum += val;
+                    stats.count += 1;
+                    stats.max = Math.max(stats.max, val);
+                    stats.min = Math.min(stats.min, val);
+                    secondaryStats.set(xVal, stats);
+                  }
+
+                  const getFinalValue = (stats) => {
+                    if (!stats) return 0;
+                    switch (config.aggregation) {
+                      case 'sum': return stats.sum;
+                      case 'avg': return stats.count > 0 ? stats.sum / stats.count : 0;
+                      case 'count': return stats.count;
+                      case 'max': return stats.max === -Infinity ? 0 : stats.max;
+                      case 'min': return stats.min === Infinity ? 0 : stats.min;
+                      default: return stats.sum;
+                    }
+                  };
+
+                  const secondaryYData = activeXAxisData.map(x => getFinalValue(secondaryStats.get(x)));
+
+                  barSeries.push({
+                    name: config.secondaryYField,
+                    type: 'line',
+                    yAxisIndex: 1,
+                    data: secondaryYData,
+                    smooth: config.smoothLine || false,
+                    label: autoShowLabel ? {
+                      show: true,
+                      position: 'top',
+                      formatter: function(params) {
+                        var val = Number(params.value);
+                        return val === 0 ? '' : val.toFixed(precision);
+                      }
+                    } : undefined,
+                    labelLayout: { hideOverlap: true }
+                  });
+                }
+
                 // 开启了“显示柱体总数”且是堆叠图，增加用于在顶部渲染总数的透明辅助系列
                 if (chartType === 'stack' && config.showTotalLabel) {
                   const totalData = activeXAxisData.map(function(x) {
@@ -834,6 +888,7 @@ export class PreviewServer {
                     name: '总计',
                     type: 'bar',
                     stack: 'total',
+                    yAxisIndex: 0,
                     data: totalData,
                     itemStyle: { color: 'rgba(0,0,0,0)' },
                     label: {
@@ -850,6 +905,71 @@ export class PreviewServer {
                 }
 
                 xAxisData.splice(0, xAxisData.length, ...activeXAxisData);
+              } else if (config.dualYAxis && config.secondaryYField) {
+                // 双 Y 轴混合图（柱状 + 折线）
+                const secondaryStats = new Map();
+                for (const row of rawData) {
+                  const xVal = String(row[config.xField] ?? '');
+                  const yVal = Number(row[config.secondaryYField]);
+                  if (!xVal) continue;
+
+                  const val = isNaN(yVal) ? 0 : yVal;
+                  const stats = secondaryStats.get(xVal) || { sum: 0, count: 0, max: -Infinity, min: Infinity };
+                  stats.sum += val;
+                  stats.count += 1;
+                  stats.max = Math.max(stats.max, val);
+                  stats.min = Math.min(stats.min, val);
+                  secondaryStats.set(xVal, stats);
+                }
+
+                const getFinalValue = (stats) => {
+                  if (!stats) return 0;
+                  switch (config.aggregation) {
+                    case 'sum': return stats.sum;
+                    case 'avg': return stats.count > 0 ? stats.sum / stats.count : 0;
+                    case 'count': return stats.count;
+                    case 'max': return stats.max === -Infinity ? 0 : stats.max;
+                    case 'min': return stats.min === Infinity ? 0 : stats.min;
+                    default: return stats.sum;
+                  }
+                };
+
+                const secondaryYData = xAxisData.map(x => getFinalValue(secondaryStats.get(x)));
+
+                barSeries = [
+                  {
+                    name: config.yField,
+                    type: 'bar',
+                    yAxisIndex: 0,
+                    data: yAxisData,
+                    barWidth: dynamicBarWidth,
+                    label: autoShowLabel ? {
+                      show: true,
+                      position: 'top',
+                      formatter: function(params) {
+                        var val = Number(params.value);
+                        return val === 0 ? '' : val.toFixed(precision);
+                      }
+                    } : undefined,
+                    labelLayout: { hideOverlap: true }
+                  },
+                  {
+                    name: config.secondaryYField,
+                    type: 'line',
+                    yAxisIndex: 1,
+                    data: secondaryYData,
+                    smooth: config.smoothLine || false,
+                    label: autoShowLabel ? {
+                      show: true,
+                      position: 'top',
+                      formatter: function(params) {
+                        var val = Number(params.value);
+                        return val === 0 ? '' : val.toFixed(precision);
+                      }
+                    } : undefined,
+                    labelLayout: { hideOverlap: true }
+                  }
+                ];
               } else {
                 barSeries = [{
                   name: config.yField,
@@ -902,16 +1022,41 @@ export class PreviewServer {
                     }
                   }
                 },
-                yAxis: { 
-                  type: 'value',
-                  axisLabel: {
-                    formatter: function(val) {
-                      if (val >= 100000000) return (val / 100000000).toFixed(1) + '亿';
-                      if (val >= 10000) return (val / 10000).toFixed(1) + '万';
-                      return new Intl.NumberFormat('zh-CN').format(val);
-                    }
-                  }
-                },
+                yAxis: config.dualYAxis && config.secondaryYField
+                  ? [
+                      { 
+                        type: 'value', 
+                        name: config.yField,
+                        axisLabel: {
+                          formatter: function(val) {
+                            if (val >= 100000000) return (val / 100000000).toFixed(1) + '亿';
+                            if (val >= 10000) return (val / 10000).toFixed(1) + '万';
+                            return new Intl.NumberFormat('zh-CN').format(val);
+                          }
+                        }
+                      },
+                      { 
+                        type: 'value', 
+                        name: config.secondaryYField,
+                        axisLabel: {
+                          formatter: function(val) {
+                            if (val >= 100000000) return (val / 100000000).toFixed(1) + '亿';
+                            if (val >= 10000) return (val / 10000).toFixed(1) + '万';
+                            return new Intl.NumberFormat('zh-CN').format(val);
+                          }
+                        }
+                      }
+                    ]
+                  : { 
+                      type: 'value',
+                      axisLabel: {
+                        formatter: function(val) {
+                          if (val >= 100000000) return (val / 100000000).toFixed(1) + '亿';
+                          if (val >= 10000) return (val / 10000).toFixed(1) + '万';
+                          return new Intl.NumberFormat('zh-CN').format(val);
+                        }
+                      }
+                    },
                 series: barSeries
               };
             } else {
@@ -1062,7 +1207,7 @@ export class PreviewServer {
               return;
             }
 
-            chart.setOption(option);
+            chart.setOption(option, true);
           }
 
           function updateLayout(containerWidth) {

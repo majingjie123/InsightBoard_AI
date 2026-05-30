@@ -385,8 +385,8 @@ export const ComponentSettingsModal: React.FC<ComponentSettingsModalProps> = ({
                 </div>
               )}
 
-              {component.type === 'line' && (
-                <div className="grid grid-cols-2 gap-4">
+              {(component.type === 'line' || component.type === 'bar') && (
+                <div className="grid grid-cols-2 gap-4 mt-2">
                   <div>
                     <label className="block font-semibold text-slate-500 mb-1.5">第二数值轴字段</label>
                     <select
